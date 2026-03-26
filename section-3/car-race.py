@@ -1,53 +1,74 @@
 """
-Car Race Simulation using threading.Barrier
-5 cars synchronize at the starting line before racing.
+Car Race Simulation using Observer pattern.
+5 cars wait for a global start notification before racing.
 """
 
+import random
 import threading
 import time
-import random
+from typing import Callable
 
 
-def auto(id_auto: int, barrera: threading.Barrier):
-    """
-    Simulates a car arriving at the starting line and racing.
+class Carrera:
+    """Subject that notifies all cars when the race can start."""
 
-    Args:
-        id_auto: Identifier for the car
-        barrera: Barrier object for synchronization
-    """
-    # Simulate time to reach the starting line
-    tiempo_llegada = random.uniform(0.5, 2.0)
-    time.sleep(tiempo_llegada)
+    def __init__(self, total_autos: int):
+        self.total_autos = total_autos
+        self._llegadas = 0
+        self._observadores: list[Callable[[], None]] = []
+        self._lock = threading.Lock()
 
-    print(f"Auto {id_auto} llegó a la salida y está esperando.")
+    def suscribir_inicio(self, observador: Callable[[], None]) -> None:
+        self._observadores.append(observador)
 
-    # Wait at the barrier until all cars arrive
-    barrera.wait()
+    def registrar_llegada(self, id_auto: int) -> None:
+        iniciar_carrera = False
 
-    # Race starts
-    print(f"Auto {id_auto} inició la carrera.")
+        with self._lock:
+            self._llegadas += 1
+            print(f"Auto {id_auto} llegó a la salida y está esperando.")
+            iniciar_carrera = self._llegadas == self.total_autos
+
+        if iniciar_carrera:
+            print("--- ¡CARRERA! ---")
+            self._notificar_inicio()
+
+    def _notificar_inicio(self) -> None:
+        for observador in self._observadores:
+            observador()
 
 
-def main():
-    NUM_AUTOS = 5
+class Auto(threading.Thread):
+    """Observer that waits for the race start notification."""
 
-    # Create barrier with action to print separator when all cars arrive
-    def accion_barrera():
-        print("--- ¡CARRERA! ---")
+    def __init__(self, id_auto: int, carrera: Carrera):
+        super().__init__()
+        self.id_auto = id_auto
+        self.carrera = carrera
+        self._evento_inicio = threading.Event()
+        self.carrera.suscribir_inicio(self._evento_inicio.set)
 
-    barrera = threading.Barrier(NUM_AUTOS, action=accion_barrera)
+    def run(self) -> None:
+        tiempo_llegada = random.uniform(0.5, 2.0)
+        time.sleep(tiempo_llegada)
 
-    # Create and start car threads
-    hilos = []
-    for i in range(NUM_AUTOS):
-        hilo = threading.Thread(target=auto, args=(i + 1, barrera))
-        hilo.start()
-        hilos.append(hilo)
+        self.carrera.registrar_llegada(self.id_auto)
+        self._evento_inicio.wait()
 
-    # Wait for all threads to complete
-    for hilo in hilos:
-        hilo.join()
+        print(f"Auto {self.id_auto} inició la carrera.")
+
+
+def main() -> None:
+    num_autos = 5
+    carrera = Carrera(num_autos)
+
+    autos = [Auto(i + 1, carrera) for i in range(num_autos)]
+
+    for auto in autos:
+        auto.start()
+
+    for auto in autos:
+        auto.join()
 
     print("\nCarrera finalizada.")
 
